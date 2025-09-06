@@ -13,7 +13,7 @@ from typing import Optional, List, Generator
 
 try:
     import tkinter as tk
-    from tkinter import ttk, font, messagebox
+    from tkinter import ttk, font, messagebox, filedialog
 
 except (ModuleNotFoundError, ImportError):
     print(
@@ -86,6 +86,7 @@ class OllamaInterface:
 
         self.root.after(200, self.check_system)
         self.refresh_models()
+        self.current_chat_file = None
 
     def copy_text(self, text: str):
         if text:
@@ -336,6 +337,63 @@ class OllamaInterface:
         self.chat_history.clear()
 
 
+    def save_chat(self):
+        if not self.current_chat_file:
+            self.save_chat_as()
+        else:
+            self._write_chat_to_file(self.current_chat_file)
+            
+    def save_chat_as(self):
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Save Chat As"
+        )
+        if filepath:
+            self.current_chat_file = filepath
+            self._write_chat_to_file(filepath)
+            self.root.title(f"Ollama GUI - {filepath}")
+            
+    def _write_chat_to_file(self, filepath: str):
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(self.chat_history, f, indent=2)
+            
+    def load_chat(self):
+        filepath = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Load Chat"
+        )
+        if not filepath:
+            return
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            try:
+                history = json.load(f)
+                # Basic validation
+                if isinstance(history, list) and all("role" in item and "content" in item for item in history):
+                    self.clear_chat()
+                    self.chat_history = history
+                    self._rebuild_chat_display()
+                    self.current_chat_file = filepath
+                    self.root.title(f"Ollama GUI - {filepath}")
+                else:
+                    messagebox.showerror("Error", "Invalid chat file format.", parent=self.root)
+            except json.JSONDecodeError:
+                messagebox.showerror("Error", "Could not decode JSON from file.", parent=self.root)
+                
+    def _rebuild_chat_display(self):
+        """Re-populates the chat box from chat_history."""
+        for message in self.chat_history:
+            is_user = message["role"] == "user"
+            model_name = self.model_select.get() if not is_user else ""
+            if not is_user:
+                self.append_text_to_chat(f"{model_name}\n", ("Bold",))
+            
+            self.layout.create_inner_label(on_right_side=is_user)
+            self.append_text_to_chat(message["content"], use_label=True)
+            self.append_text_to_chat("\n\n")    
+
+
 class LayoutManager:
     """
     Manages the layout and arrangement of the OllamaInterface.
@@ -462,6 +520,10 @@ class LayoutManager:
 
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Load Chat", command=self.interface.load_chat)
+        file_menu.add_command(label="Save Chat", command=self.interface.save_chat)
+        file_menu.add_command(label="Save Chat As...", command=self.interface.save_chat_as)
+        file_menu.add_separator()
         file_menu.add_command(label="Model Management", command=self.show_model_management_window)
         file_menu.add_command(label="Exit", command=self.interface.root.quit)
 
